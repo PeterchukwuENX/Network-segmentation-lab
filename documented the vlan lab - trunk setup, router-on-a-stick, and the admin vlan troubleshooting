@@ -1,0 +1,67 @@
+# Network Segmentation Lab (VLANs + Router-on-a-Stick)
+
+## 🚀 Project Overview
+
+This is a Cisco Packet Tracer build where I split one physical network into six separate departmental networks - IT, HR, Accounting, Server, Guest, and Admin - using VLANs, then got a router talking to all of them at once.
+
+The point wasn't just to get devices pinging each other. It was to actually understand *why* segmentation matters: a Guest device sitting on the same wire as a Server should never be able to just wander over and touch it. VLANs are how real networks enforce that kind of separation, and this lab was me building that logic from scratch instead of just reading about it.
+
+## 🗺️ Network Architecture
+
+| VLAN | Department | Network | Router Gateway |
+|---|---|---|---|
+| 2 | IT | 192.168.10.0/24 | 192.168.10.1 |
+| 3 | HR | 192.168.20.0/24 | 192.168.20.1 |
+| 4 | Accounting | 192.168.30.0/24 | 192.168.30.1 |
+| 5 | Server | 192.168.40.0/24 | 192.168.40.1 |
+| 6 | Guest | 192.168.50.0/24 | 192.168.50.1 |
+| 7 | Admin | 192.168.60.0/24 | 192.168.60.1 |
+
+```
+                     ROUTER
+        G0/0.2-G0/0.7 → one sub-interface per VLAN
+                       │
+                 G0/0 ↕ G0/1
+                       │
+                 802.1Q TRUNK
+                       │
+                     SWITCH
+   Fa0/2 IT · Fa0/3 HR · Fa0/4 Accounting
+   Fa0/5 Server · Fa0/6 Guest · Fa0/1 Admin
+```
+
+Router and switch connect via a trunk link (carries all VLANs at once); every other port is an access port carrying just one VLAN each.
+
+## ⚙️ What I actually built
+
+**Created the VLANs on the switch** - six logical networks (IT, HR, Accounting, Server, Guest, Admin), each just a label until a port gets assigned to it.
+
+**Assigned access ports** - each department's device(s) got put on the matching VLAN, one port at a time: `switchport mode access` + `switchport access vlan X`.
+
+**Trunked the switch-to-router link** - a normal access port only carries one VLAN, which doesn't work for the link going to the router since it needs to carry all six at once. Set `switchport mode trunk` on that link instead, and confirmed it with `show interfaces trunk`.
+
+One thing that tripped me up at first: the switch used `G0/1` for this link, and the router used `G0/0`. I assumed they needed to match - they don't. What matters is how each end is configured, not the port numbers lining up.
+
+**Router-on-a-stick** - instead of needing one physical router port per VLAN (which most routers don't have enough of anyway), I created six sub-interfaces on the router's single G0/0 port, one per VLAN:
+```
+interface gigabitEthernet 0/0.2
+encapsulation dot1Q 2
+ip address 192.168.10.1 255.255.255.0
+```
+Same pattern repeated for VLANs 3 through 7. Each sub-interface becomes that VLAN's default gateway.
+
+**Verified everything actually worked** - `show ip interface brief` confirmed all six sub-interfaces were up, `show ip route` showed the router directly connected to all six networks, and pinging across VLANs (e.g. from IT to Accounting) worked - after the first ping timed out, which is just ARP learning the address for the first time, not a real problem.
+
+**Troubleshot a real issue on the Admin VLAN** - it wasn't connecting at first. Instead of guessing, I worked through it in order: checked the switch had the port on the right VLAN (`show vlan brief`), confirmed the port's VLAN assignment (`show interfaces fa0/1 switchport`), checked the host's IP/gateway config. That process - not immediately assuming the router was broken - was honestly the most useful part of the whole lab.
+
+## 🧠 What I actually learned
+
+- **VLANs separate, they don't connect.** Creating a VLAN just isolates it - a router (or Layer 3 switch) is what lets separate VLANs actually reach each other.
+- **Access ports and trunk ports are different jobs.** One VLAN per port vs. all VLANs on one link.
+- **A router sub-interface is a VLAN's gateway.** VLAN 7 → G0/0.7 → 192.168.60.1 - that chain is the whole relationship.
+- **Interface numbers don't need to match between devices.** G0/1 on the switch to G0/0 on the router is completely normal.
+- **Troubleshooting should be a process, not a guess.** Host → switch VLAN → port mode → router sub-interface → routing table → connectivity test, in that order, is a lot closer to how real network troubleshooting works than jumping straight to reconfiguring things.
+
+## Why I built this
+
+Part of my path toward a SOC analyst role. Segmentation is one of the first concepts that comes up when talking about limiting how far an attacker can move once they're inside a network - this lab was my first time actually building that boundary myself instead of just reading about why it matters.
